@@ -1,0 +1,78 @@
+#include <Wire.h>
+#include <DHT.h>
+#include <Servo.h>
+#include <Adafruit_MPU6050.h>
+#include <Adafruit_Sensor.h>
+#include <math.h>
+
+#define DHTPIN 2
+#define DHTTYPE DHT22
+
+DHT dht(DHTPIN, DHTTYPE);
+Adafruit_MPU6050 mpu;
+Servo tvcServo;
+
+float Kp = 2.0;
+float Ki = 0.1;
+float Kd = 1.0;
+
+float previousError = 0;
+float integral = 0;
+
+float setpoint = 0; 
+float simulatedPitch = 10.0; 
+
+void setup() {
+  Serial.begin(9600);
+  dht.begin();
+
+  if (!mpu.begin()) {
+    Serial.println("MPU6050 not found!");
+    while (1) delay(10);
+  }
+
+  tvcServo.attach(9);
+  Serial.println("Setup done.");
+}
+
+void loop() {
+  float temp = dht.readTemperature();
+  float hum = dht.readHumidity();
+
+  sensors_event_t acc, gyro, temp_event;
+  mpu.getEvent(&acc, &gyro, &temp_event);
+
+  float sensorPitch = atan2(-acc.acceleration.x, sqrt(acc.acceleration.y * acc.acceleration.y + acc.acceleration.z * acc.acceleration.z)) * 180.0 / PI;
+
+  
+  float error = setpoint - simulatedPitch;
+  integral += error;
+  float derivative = error - previousError;
+  float output = Kp * error + Ki * integral + Kd * derivative;
+  previousError = error;
+
+
+  simulatedPitch += output * 0.05; 
+  simulatedPitch = constrain(simulatedPitch, -45, 45);
+
+  int servoAngle = map(simulatedPitch, -45, 45, 0, 180);
+  tvcServo.write(servoAngle);
+
+
+  Serial.print("{\"temp\":");
+  Serial.print(temp);
+  Serial.print(", \"humidity\":");
+  Serial.print(hum);
+  Serial.print(", \"pitch\":");
+  Serial.print(simulatedPitch);
+  Serial.print(", \"servo\":");
+  Serial.print(servoAngle);
+  Serial.println("}");
+
+  Serial.print("Sensor Pitch: "); Serial.println(sensorPitch);
+  Serial.print("ax: "); Serial.print(acc.acceleration.x);
+  Serial.print(", ay: "); Serial.print(acc.acceleration.y);
+  Serial.print(", az: "); Serial.println(acc.acceleration.z);
+
+  delay(500);
+}
